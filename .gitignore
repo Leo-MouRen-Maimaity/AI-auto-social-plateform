@@ -6,3 +6,15 @@
 /venv
 /.idea/
 /.qoder/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Database
+*.db
+*.sqlite
+*.sqlite3

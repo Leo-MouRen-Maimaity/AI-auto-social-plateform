@@ -11,7 +11,7 @@
 import asyncio
 import random
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -67,7 +67,7 @@ class SocialScheduler:
     # ===== 看手机行为 =====
     
     async def use_phone(self, agent: 'CharacterAgent', 
-                        duration_minutes: int = 10) -> List[SocialActionResult]:
+                        duration_minutes: int = 10) -> Tuple[List[SocialActionResult], str]:
         """
         使用手机（综合社交行为）
         
@@ -80,10 +80,11 @@ class SocialScheduler:
             duration_minutes: 使用手机的时间（分钟）
             
         Returns:
-            执行的社交行为结果列表
+            (执行的社交行为结果列表, 浏览体验总结)
         """
         results = []
         remaining_time = duration_minutes
+        browsing_summary = ""
         
         # 1. 先检查未读消息
         if remaining_time >= 2:
@@ -94,7 +95,7 @@ class SocialScheduler:
         # 2. 浏览帖子
         if remaining_time >= 2:
             posts_to_view = remaining_time // 2  # 每条帖子约2分钟
-            feed_results = await self.browse_feed(agent, max_posts=min(5, posts_to_view))
+            feed_results, browsing_summary = await self.browse_feed(agent, max_posts=min(5, posts_to_view))
             results.extend(feed_results)
             remaining_time -= sum(r.duration for r in feed_results)
         
@@ -104,10 +105,10 @@ class SocialScheduler:
             if post_result:
                 results.append(post_result)
         
-        return results
+        return results, browsing_summary
     
     async def browse_feed(self, agent: 'CharacterAgent', 
-                          max_posts: int = 5) -> List[SocialActionResult]:
+                          max_posts: int = 5) -> Tuple[List[SocialActionResult], str]:
         """
         浏览社交网络动态
         
@@ -116,7 +117,7 @@ class SocialScheduler:
             max_posts: 最多浏览帖子数
             
         Returns:
-            浏览结果列表（包含点赞/评论行为）
+            (浏览结果列表, 浏览体验总结)
         """
         from shared.config import get_settings
         settings = get_settings()
@@ -136,7 +137,7 @@ class SocialScheduler:
                 message="社交网络没有新帖子",
                 duration=1
             ))
-            return results
+            return results, "浏览了社交网络，没有新内容"
         
         # 随机选择要看的帖子
         posts_to_view = random.sample(posts, min(max_posts, len(posts)))
@@ -215,7 +216,12 @@ class SocialScheduler:
                 duration=2
             ))
         
-        return results
+        # 让Agent总结浏览体验
+        browsing_summary = await agent.summarize_browsing_session(
+            posts_for_agent, reactions
+        )
+        
+        return results, browsing_summary
     
     async def create_post(self, agent: 'CharacterAgent', 
                           context: str = "") -> Optional[SocialActionResult]:

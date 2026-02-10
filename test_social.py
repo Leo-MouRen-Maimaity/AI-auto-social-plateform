@@ -137,10 +137,12 @@ async def test_social_scheduler():
     scheduler = get_social_scheduler(db)
     
     print("\n测试浏览帖子...")
-    results = await scheduler.browse_feed(agent, max_posts=2)
+    results, browsing_summary = await scheduler.browse_feed(agent, max_posts=2)
     
     for r in results:
         print(f"  [{r.action_type.value}] {r.message}")
+    
+    print(f"\n  浏览总结: {browsing_summary}")
     
     # 测试发帖
     print("\n测试发帖...")

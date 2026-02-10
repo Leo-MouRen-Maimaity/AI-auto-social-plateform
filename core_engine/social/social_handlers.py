@@ -36,7 +36,7 @@ class UsePhoneHandler(EventHandler):
         duration = event.duration or 10
         
         # 执行看手机行为
-        results = await scheduler.use_phone(agent, duration)
+        results, browsing_summary = await scheduler.use_phone(agent, duration)
         
         # 更新事件数据
         event.data['results'] = [
@@ -49,13 +49,20 @@ class UsePhoneHandler(EventHandler):
         ]
         
         # 记录到角色今日事件
-        summary_parts = []
+        # 非浏览类的消息（私信、发帖等）单独提取
+        other_parts = []
         for r in results:
-            if r.success and r.message:
-                summary_parts.append(r.message)
+            if r.success and r.message and r.action_type.value not in ('browse_feed', 'like_post', 'comment_post'):
+                other_parts.append(r.message)
         
-        if summary_parts:
-            agent.today_events.append(f"看了会儿手机：{'; '.join(summary_parts[:3])}")
+        # 组合：浏览总结 + 其他行为
+        all_parts = []
+        if browsing_summary:
+            all_parts.append(browsing_summary)
+        all_parts.extend(other_parts[:2])
+        
+        if all_parts:
+            agent.today_events.append(f"看了会儿手机：{'; '.join(all_parts)}")
         else:
             agent.today_events.append("看了会儿手机")
         

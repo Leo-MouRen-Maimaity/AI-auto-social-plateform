@@ -658,22 +658,21 @@ class CharacterAgent:
             # 浏览帖子
             from ..social.social_scheduler import get_social_scheduler
             scheduler = get_social_scheduler(self._db)
-            results = await scheduler.browse_feed(self, max_posts=5)
+            results, browsing_summary = await scheduler.browse_feed(self, max_posts=5)
             
             if results:
-                messages = [r.message for r in results if r.message]
                 total_duration = sum(r.duration for r in results)
                 return ActionResult(
                     success=True,
                     action='browse_posts',
-                    message=f"浏览了社交网络：{'; '.join(messages[:3])}",
+                    message=browsing_summary,
                     duration=total_duration or 15,
                     data={'results': [r.data for r in results]}
                 )
             return ActionResult(
                 success=True,
                 action='browse_posts',
-                message="浏览了社交网络，没有新帖子",
+                message=browsing_summary or "浏览了社交网络，没有新帖子",
                 duration=5
             )
         
@@ -725,14 +724,25 @@ class CharacterAgent:
             # 保留旧的use_phone作为兼容，但调用综合社交行为
             from ..social.social_scheduler import get_social_scheduler
             scheduler = get_social_scheduler(self._db)
-            results = await scheduler.use_phone(self, duration_minutes=10)
+            results, browsing_summary = await scheduler.use_phone(self, duration_minutes=10)
             
             if results:
-                messages = [r.message for r in results if r.message]
+                # 非浏览类的消息（私信、发帖等）单独提取
+                other_messages = [
+                    r.message for r in results 
+                    if r.message and r.action_type.value not in ('browse_feed', 'like_post', 'comment_post')
+                ]
+                # 组合：浏览总结 + 其他行为
+                all_parts = []
+                if browsing_summary:
+                    all_parts.append(browsing_summary)
+                all_parts.extend(other_messages[:2])
+                
+                message = f"看了会儿手机：{'; '.join(all_parts)}" if all_parts else "看了会儿手机"
                 return ActionResult(
                     success=True,
                     action='use_phone',
-                    message=f"看了会儿手机：{'; '.join(messages[:3])}",
+                    message=message,
                     duration=10
                 )
             return ActionResult(
@@ -1018,6 +1028,85 @@ class CharacterAgent:
             await asyncio.sleep(0.1)  # 避免过快请求
         
         return reactions
+    
+    async def summarize_browsing_session(
+        self, 
+        posts: List[Dict[str, Any]], 
+        reactions: List[Dict[str, Any]]
+    ) -> str:
+        """
+        总结浏览社交网络的体验
+        
+        在浏览帖子并做出反应后，调用LLM生成1-2句话的总结，
+        用于记录到today_events和action_log，供后续决策参考。
+        
+        Args:
+            posts: 浏览的帖子列表（含content、author_name等）
+            reactions: 对每条帖子的反应（含like、comment等）
+            
+        Returns:
+            浏览体验的总结文本
+        """
+        if not posts:
+            return "浏览了社交网络，没有新内容"
+        
+        # 构建浏览历史描述
+        history_lines = []
+        for i, (post, reaction) in enumerate(zip(posts, reactions), 1):
+            author = post.get('author_name', '某人')
+            content = post.get('content', '')
+            content_preview = content[:80] + ("..." if len(content) > 80 else "")
+            
+            # 构建反应描述
+            action_parts = []
+            if reaction.get('like'):
+                action_parts.append("点赞了")
+            if reaction.get('comment'):
+                comment_preview = reaction['comment'][:30]
+                action_parts.append(f'评论了"{comment_preview}"')
+            
+            reaction_text = "、".join(action_parts) if action_parts else "只是看了看"
+            
+            history_lines.append(
+                f'{i}. {author}的帖子："{content_preview}"\n'
+                f'   → 你的反应：{reaction_text}'
+            )
+        
+        browsing_history = "\n".join(history_lines)
+        
+        summary_prompt = f"""
+你刚才浏览了社交网络，看到了以下帖子：
+
+{browsing_history}
+
+请用1-2句话总结这次浏览体验，包括看到了什么、你做了什么反应、整体感受。
+用第一人称，符合你的性格来描述。
+"""
+        
+        try:
+            response = await self._llm.generate_with_system(
+                self._build_system_prompt(),
+                summary_prompt,
+                temperature=0.6,
+                max_tokens=200
+            )
+            
+            if response and response.success and response.content:
+                return response.content.strip()
+        except Exception:
+            pass
+        
+        # 降级：用简单拼接描述
+        parts = []
+        for post, reaction in zip(posts, reactions):
+            author = post.get('author_name', '某人')
+            if reaction.get('comment'):
+                parts.append(f"评论了{author}的帖子")
+            elif reaction.get('like'):
+                parts.append(f"给{author}的帖子点赞")
+            else:
+                parts.append(f"看了{author}的帖子")
+        return f"浏览了社交网络：{'; '.join(parts[:4])}"
     
     async def create_post(self, context: str = "") -> Optional[Dict[str, str]]:
         """
