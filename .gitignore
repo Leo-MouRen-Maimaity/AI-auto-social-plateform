@@ -5,7 +5,8 @@
 
 /venv
 /.idea/
-/.qoder/
+/.qoder/*
+!/.qoder/repowiki/
 
 # Python
 __pycache__/
